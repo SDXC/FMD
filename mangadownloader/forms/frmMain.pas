@@ -624,6 +624,7 @@ type
     procedure vtFavoritesBeforeCellPaint(Sender: TBaseVirtualTree;
       TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
       CellPaintMode: TVTCellPaintMode; CellRect: TRect; var ContentRect: TRect);
+    procedure vtFavoritesChange(Sender: TBaseVirtualTree; Node: PVirtualNode);
     procedure vtFavoritesColumnDblClick(Sender: TBaseVirtualTree;
       Column: TColumnIndex; Shift: TShiftState);
     procedure vtFavoritesDragDrop(Sender: TBaseVirtualTree; Source: TObject;
@@ -729,6 +730,7 @@ type
 
     // fill edSaveTo with default path
     procedure FillSaveTo;
+	procedure OverrideSaveTo(const AWebsite: String);
 
     // View manga information
     procedure ViewMangaInfo(const ALink, AWebsite, ATitle, ASaveTo: String;
@@ -2451,6 +2453,7 @@ begin
   if mangaInfo.title <> '' then
   begin
     // save to
+	OverrideSaveTo(mangaInfo.website);
     s := edSaveTo.Text;
     if OptionGenerateMangaFolder then
       s := AppendPathDelim(s) + CustomRename(
@@ -3427,7 +3430,7 @@ begin
             end;
             Break;
           end;
-
+		  
       if AllowedToCreate then
         SilentThreadManager.Add(MD_DownloadAll, data^.website, data^.title, data^.link);
       xNode := vtMangaList.GetNextSelected(xNode);
@@ -3499,7 +3502,20 @@ end;
 procedure TMainForm.pcMainChange(Sender: TObject);
 begin
   if pcMain.ActivePage = tsFavorites then
-    vtFavorites.Repaint
+  begin
+    vtFavorites.Repaint;
+	if vtFavorites.SelectedCount > 0 then
+      sbMain.Panels[0].Text := Format(RS_Selected, [vtFavorites.SelectedCount])
+    else
+      sbMain.Panels[0].Text := ''
+  end
+  else if pcMain.ActivePage = tsInformation then
+  begin
+    if vtMangaList.SelectedCount > 0 then
+      sbMain.Panels[0].Text := Format(RS_Selected, [vtMangaList.SelectedCount])
+    else
+      sbMain.Panels[0].Text := ''
+  end
   else if pcMain.ActivePage = tsOption then
     LoadOptions;
 end;
@@ -4220,6 +4236,15 @@ begin
   end;
 end;
 
+procedure TMainForm.vtFavoritesChange(Sender: TBaseVirtualTree;
+  Node: PVirtualNode);
+begin
+  if vtFavorites.SelectedCount > 0 then
+    sbMain.Panels[0].Text := Format(RS_Selected, [vtFavorites.SelectedCount])
+  else
+    sbMain.Panels[0].Text := '';
+end;
+
 procedure TMainForm.vtFavoritesColumnDblClick(Sender: TBaseVirtualTree;
   Column: TColumnIndex; Shift: TShiftState);
 begin
@@ -4709,6 +4734,15 @@ begin
   edSaveTo.Text := LastUserPickedSaveTo;
 end;
 
+procedure TMainForm.OverrideSaveTo(const AWebsite: String);
+var
+  p: String;
+begin
+  p := Modules.Module[Modules.LocateModule(AWebsite)].Settings.OverrideSettings.SaveToPath;
+  if p <> '' then
+    edSaveTo.Text := p;
+end;
+
 procedure TMainForm.ViewMangaInfo(const ALink, AWebsite, ATitle, ASaveTo: String;
   const ASender: TObject; const AMangaListNode: PVirtualNode);
 var
@@ -4747,7 +4781,11 @@ begin
   edSaveTo.Text := ASaveTo;
   LastViewMangaInfoSender := ASender;
   if edSaveTo.Text = '' then
-    FillSaveTo;
+	FillSaveTo;
+  
+  if (LastViewMangaInfoSender <> miDownloadViewMangaInfo) and (LastViewMangaInfoSender <> miFavoritesViewInfos) then
+    OverrideSaveTo(AWebsite);
+  
 
   DisableAddToFavorites(AWebsite);
   //check if manga already in FavoriteManager list
