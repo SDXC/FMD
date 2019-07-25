@@ -1,4 +1,3 @@
-local base64 = require 'modules.base64'
 local hex_to_char = function(x)
   return string.char(tonumber(x, 16))
 end
@@ -186,7 +185,7 @@ function getpagenumber()
       local x = TXQuery.Create(http.Document)
       local s = x.xpathstring('//script[contains(., "bm_content")]')
             s = GetBetween('var bm_content = atob("', '");', s)
-            s = unescape(base64.decode(s))
+            s = unescape(DecodeBase64(s))
             s = s:gsub('+', ' ')
             x.parsehtml(s)
             x.xpathstringall('//*[@class="chapimage"]/@src', task.pagelinks)
