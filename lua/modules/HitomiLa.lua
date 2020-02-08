@@ -1,5 +1,14 @@
 local domain = 'hitomi.la'
 
+function GetRedirectUrl(document)
+  local x = TXQuery.Create(document)
+  local s = x.xpathstring('//script[contains(., "window.location.href")]')
+  if (s ~= '') and (s ~= nil) then
+    return GetBetween('"', '"', s)
+  end
+  return ''
+end
+
 function set_https(s)
   if s:match('^//') then
     return 'https:' .. s
@@ -9,8 +18,14 @@ function set_https(s)
 end
 
 function getinfo()
-  mangainfo.url=MaybeFillHost(module.RootURL, url)
-  if http.get(mangainfo.url) then
+  local u = MaybeFillHost(module.rooturl, url)
+  if http.get(u) then
+    local s = GetRedirectUrl(http.Document)
+    if (s ~= '') and (s ~= nil) then
+      u = s
+      if not http.GET(u) then return false; end
+    end
+    mangainfo.url=u
     local x=TXQuery.Create(http.document)
     mangainfo.title = x.xpathstring('//div[starts-with(@class,"gallery")]/h1')
     mangainfo.coverlink=MaybeFillHost(module.RootURL, x.xpathstring('//div[@class="cover"]//img/@src'))
