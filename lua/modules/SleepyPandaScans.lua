@@ -53,7 +53,7 @@ end
 function Init()
   m=NewModule()
   m.category='English-Scanlation'
-  m.website='ManhwaCo'
+  m.website='SleepyPandaScans'
   m.rooturl='https://sleepypandascans.co'
   m.lastupdated='February 15, 2018'
   m.ongetinfo='GetInfo'
