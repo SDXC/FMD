@@ -24,10 +24,28 @@ function CFRequest(const AHTTP: THTTPSendThread; const Method, AURL: String; con
 
 implementation
 
+{$R Cloudflare.rc}
+
 uses WebsiteModules, MultiLog;
 
 const
   MIN_WAIT_TIME = 5000;
+  PRELUDE_SCRIPT_NAME = 'CLOUDFLARE_PRELUDE';
+
+function LoadPreludeScript: String;
+var
+  stream: TResourceStream;
+begin
+  Result := '';
+  stream := nil;
+  try
+    stream := TResourceStream.Create(HINSTANCE, PRELUDE_SCRIPT_NAME, MAKEINTRESOURCE(10));
+    Result := StreamToString(stream);
+  finally
+    if Assigned(stream) then
+       FreeAndNil(stream);
+  end;
+end;
 
 function AntiBotActive(const AHTTP: THTTPSendThread): Boolean;
 var
@@ -45,10 +63,9 @@ end;
 function JSGetAnsweredURL(const Source, URL: String; var OMethod, OURL, opostdata: String;
   var OSleepTime: Integer): Boolean;
 var
-  meth, surl, r, jschl_vc, pass, jschl_answer,
-  body, javascript, challenge, innerHTML, i, k, domain: String;
-  re: TRegExpr;
-  ms: Integer;
+  meth, surl, r, rname, jschl_vc, pass,
+    jschl_answer, preludeScript, script, payload: String;
+  v: IXQValue;
 begin
   Result := False;
   if (Source = '') or (URL = '') then Exit;
@@ -63,68 +80,53 @@ begin
     try
       meth := UpperCase(XPathString('//form[@id="challenge-form"]/@method'));
       surl := XPathString('//form[@id="challenge-form"]/@action');
-      r:=xpathstring('//input[@name="r"]/@value');
+      r := XPathString('//input[@name="s" or @name="r"]/@value');
+      rname := XPathString('//input[@name="s" or @name="r"]/@name');
       jschl_vc := XPathString('//input[@name="jschl_vc"]/@value');
       pass := XPathString('//input[@name="pass"]/@value');
+      script := XPathString('//script');
+
+      if (meth = '') or (surl = '') or (r = '') or (jschl_vc = '') or (pass = '') then Exit;
+
+      preludeScript := LoadPreludeScript();
+      preludeScript := Format(preludeScript, [ DefaultUserAgent, URL ]);
+      for v in XPath('//*[@id and contains(., "[]")]') do begin
+        preludeScript += Format('$$e["%s"] = { innerHTML: "%s" };' + LineEnding,
+            [ v.toNode.getAttribute('id'),
+              ReplaceString(v.toNode.innerHTML, '"', '\"') ]);
+      end;
     finally
       Free;
     end;
 
-  if (meth = '') or (surl = '') or (r='') or (jschl_vc = '') or (pass = '') then Exit;
+  script := preludeScript + script + LineEnding + 'JSON.stringify($$e);';
+  script := ExecJS(script);
 
-  re:=TRegExpr.Create;
-  try
-    body:=source;
-    // main script
-    re.Expression := '\<script type\=\"text\/javascript\"\>\n(.*?)\<\/script\>';
-    if re.Exec(body) then javascript:=re.Match[1];
-
-    // challenge
-    re.Expression := 'setTimeout\(function\(\)\{\s*(var '+
-                     's,t,o,p,b,r,e,a,k,i,n,g,f.+?\r?\n.+?a\.value\s*=.+?)\r?\n'+
-                     '([^\{<>]*\},\s*(\d{4,}))?';
-    ms:=0;
-    if re.Exec(javascript) and (re.SubExprMatchCount>0) then begin
-      challenge:=re.Match[1];
-      if re.SubExprMatchCount=3 then ms:=StrToIntDef(re.Match[3], MIN_WAIT_TIME);
+  with TXQueryEngineHTML.Create(script) do
+    try
+      OSleepTime := StrToIntDef(XPathString('json(*).timeout'), MIN_WAIT_TIME);
+      jschl_answer := XPathString('json(*).jschl-answer.value');
+    finally
+      Free;
     end;
-    if ms=0 then ms:=MIN_WAIT_TIME;
-
-    //
-    innerHTML:='';
-    for i in javascript.Split([';']) do
-      if SeparateLeft(i,'=').trim = 'k' then begin
-        k:=SeparateRight(i,'=').trim(' ''');
-         re.Expression := '\<div.*?id\=\"'+k+'\".*?\>(.*?)\<\/div\>';
-         if re.Exec(body) then
-           innerHTML := re.Match[1];
-      end;
-
-    SplitURL(URL,@domain,nil,false,false);
-    challenge := Format(
-    '        var document = {'+LineEnding+
-    '            createElement: function () {'+LineEnding+
-    '              return { firstChild: { href: "http://%s/" } }'+LineEnding+
-    '            },'+LineEnding+
-    '            getElementById: function () {'+LineEnding+
-    '              return {"innerHTML": "%s"};'+LineEnding+
-    '            }'+LineEnding+
-    '          };'+LineEnding+
-    LineEnding+
-    '        %s; a.value',
-                [domain,
-                innerHTML,
-                challenge]);
-    jschl_answer := ExecJS(challenge);
-  finally
-    re.free;
-  end;
 
   if jschl_answer = '' then Exit;
-  OSleepTime:=ms;
+
+  payload := Format('%s=%s&jschl_vc=%s&pass=%s&jschl_answer=%s',
+                    [ rname, EncodeURLElement(r), EncodeURLElement(jschl_vc),
+                      EncodeURLElement(pass), EncodeURLElement(jschl_answer) ]);
+
+  if CompareText(meth, 'POST') = 0 then
+  begin
+    OURL := surl;
+    opostdata := payload;
+  end
+  else begin
+    OURL := surl + '?' + payload;
+    opostdata := '';
+  end;
+
   OMethod := meth;
-  OURL := surl;
-  opostdata:='r='+encodeurlelement(r)+'&jschl_vc='+encodeurlelement(jschl_vc)+'&pass='+encodeurlelement(pass)+'&jschl_answer='+encodeurlelement(jschl_answer);
   Result := True;
 end;
 
