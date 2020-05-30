@@ -127,6 +127,8 @@ begin
           chapterName.Add(s);
         end;
         InvertStrings([chapterLinks, chapterName]);
+        MangaInfo.FHTTP.Reset();
+        MangaInfo.FHTTP.Headers.Values['Accept'] := 'image/webp,image/apng,image/*,*/*;q=0.8';
       finally
         Free;
       end;
@@ -209,7 +211,7 @@ begin
         source.LoadFromStream(Document);
         for i := 0 to source.Count - 1 do
         begin
-          if Pos('lstImages.push', source[i]) <> 0 then
+          if Pos('lstOLA.push', source[i]) <> 0 then
             PageLinks.Add(GetBetween('("', '")', source[i]))
           else if (Pos('chko', source[i]) <> 0) and (Pos('=', source[i]) <> 0) then
             chko2 := GetBetween('["', '"]', source[i]);
